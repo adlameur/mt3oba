@@ -1,16 +1,21 @@
 const mineflayer = require("mineflayer");
+const { pathfinder, Movements, goals } = require("mineflayer-pathfinder");
+const { Vec3 } = require("vec3");
 
 /* ================================
-   SERVER CONFIG (EDIT THIS)
+   SERVER INFO
 ================================ */
-const SERVER_HOST = "emerald.magmanode.com"; // IP or domain
-const SERVER_PORT = 31177;
-const BOT_USERNAME = "AFK_Bot_1"; // Offline-mode name
+const SERVER_HOST = "MTB1-mLqH.aternos.me";
+const SERVER_PORT = 59794;
+const BOT_USERNAME = "Axiom";
 const MC_VERSION = "1.21";
 
 /* ================================
-   BOT LOGIC
+   STATE
 ================================ */
+let mode = "idle"; // idle | build | mine | combat
+let targetBlock = null;
+let combatTarget = null;
 
 function startBot() {
   const bot = mineflayer.createBot({
@@ -20,46 +25,134 @@ function startBot() {
     version: MC_VERSION
   });
 
+  bot.loadPlugin(pathfinder);
+
   bot.once("spawn", () => {
-    console.log("✅ Bot spawned and online");
+    console.log("🧠 Axiom online");
 
-    // Anti-AFK jump
-    setInterval(() => {
-      bot.setControlState("jump", true);
-      setTimeout(() => bot.setControlState("jump", false), 500);
-    }, 30000);
+    // Creative if OP
+    setTimeout(() => {
+      bot.chat("/gamemode creative");
+    }, 3000);
 
-    // Look around randomly
+    const mcData = require("minecraft-data")(bot.version);
+    const movements = new Movements(bot, mcData);
+    movements.canDig = true;
+    movements.allowParkour = false;
+    movements.allow1by1towers = false;
+
+    bot.pathfinder.setMovements(movements);
+
+    // MAIN THINK LOOP (AUTONOMOUS)
     setInterval(() => {
-      const yaw = Math.random() * Math.PI * 2;
-      bot.look(yaw, 0);
-    }, 15000);
+      if (mode === "build") buildAI(bot);
+      if (mode === "mine") mineAI(bot);
+    }, 2000);
   });
 
+  /* ================================
+     CHAT COMMANDS
+  ================================ */
   bot.on("chat", (username, message) => {
     if (username === bot.username) return;
 
-    if (message === "!ping") {
-      bot.chat("Pong! AFK bot online 😎");
+    if (message === "!build") {
+      mode = "build";
+      bot.chat("🧱 Axiom: building autonomously.");
     }
 
-    if (message === "!status") {
-      bot.chat("Still connected and not AFK.");
+    if (message === "!mine") {
+      mode = "mine";
+      bot.chat("⛏️ Axiom: mining autonomously.");
+    }
+
+    if (message === "!combat") {
+      mode = "combat";
+      bot.chat("⚔️ Axiom: combat autonomous.");
+    }
+
+    if (message === "!stop") {
+      mode = "idle";
+      targetBlock = null;
+      combatTarget = null;
+      bot.pathfinder.stop();
+      bot.chat("🛑 Axiom: standing by.");
     }
   });
 
-  bot.on("kicked", reason => {
-    console.log("❌ Kicked:", reason);
+  /* ================================
+     COMBAT AI (AUTOMATIC)
+  ================================ */
+  bot.on("physicsTick", () => {
+    if (mode !== "combat") return;
+
+    if (!combatTarget || !combatTarget.isValid) {
+      combatTarget = bot.nearestEntity(e =>
+        e.type === "mob" && e.mobType !== "Armor Stand"
+      );
+    }
+
+    if (!combatTarget) return;
+
+    bot.lookAt(combatTarget.position.offset(0, 1.4, 0));
+
+    const dist = bot.entity.position.distanceTo(combatTarget.position);
+
+    if (dist > 3) {
+      bot.pathfinder.setGoal(
+        new goals.GoalFollow(combatTarget, 2),
+        true
+      );
+    } else {
+      bot.attack(combatTarget);
+    }
   });
 
   bot.on("end", () => {
-    console.log("🔄 Disconnected. Reconnecting in 10 seconds...");
+    console.log("🔄 Axiom disconnected, reconnecting...");
     setTimeout(startBot, 10000);
   });
 
-  bot.on("error", err => {
-    console.log("⚠️ Error:", err);
+  bot.on("error", err => console.log("⚠️ Error:", err));
+}
+
+/* ================================
+   BUILDING AI
+================================ */
+function buildAI(bot) {
+  const pos = bot.entity.position.floored();
+  const baseBlock = bot.blockAt(pos.offset(0, -1, 0));
+  if (!baseBlock) return;
+
+  bot.placeBlock(baseBlock, new Vec3(0, 1, 0)).catch(() => {});
+}
+
+/* ================================
+   MINING AI
+================================ */
+function mineAI(bot) {
+  if (targetBlock && bot.canDigBlock(targetBlock)) {
+    bot.dig(targetBlock).catch(() => {});
+    targetBlock = null;
+    return;
+  }
+
+  targetBlock = bot.findBlock({
+    matching: block =>
+      block.name.includes("stone") ||
+      block.name.includes("ore"),
+    maxDistance: 16
   });
+
+  if (!targetBlock) return;
+
+  bot.pathfinder.setGoal(
+    new goals.GoalBlock(
+      targetBlock.position.x,
+      targetBlock.position.y,
+      targetBlock.position.z
+    )
+  );
 }
 
 startBot();
