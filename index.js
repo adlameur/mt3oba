@@ -5,15 +5,11 @@ const { Vec3 } = require("vec3");
 /* ================================
    SERVER INFO
 ================================ */
-const SERVER_HOST = "emerald.magmanode.com";
-const SERVER_PORT = 31177;
+const SERVER_HOST = "mtbcraft.minekeep.gg";
+const SERVER_PORT = 25565;
 const BOT_USERNAME = "Axiom";
 const MC_VERSION = "1.21";
 
-/* ================================
-   STATE
-================================ */
-let mode = "idle"; // idle | build | mine | combat
 let targetBlock = null;
 let combatTarget = null;
 
@@ -28,12 +24,9 @@ function startBot() {
   bot.loadPlugin(pathfinder);
 
   bot.once("spawn", () => {
-    console.log("🧠 Axiom online");
+    console.log("🧠 Axiom has awakened");
 
-    // Creative if OP
-    setTimeout(() => {
-      bot.chat("/gamemode creative");
-    }, 3000);
+    setTimeout(() => bot.chat("/gamemode creative"), 3000);
 
     const mcData = require("minecraft-data")(bot.version);
     const movements = new Movements(bot, mcData);
@@ -43,59 +36,31 @@ function startBot() {
 
     bot.pathfinder.setMovements(movements);
 
-    // MAIN THINK LOOP (AUTONOMOUS)
-    setInterval(() => {
-      if (mode === "build") buildAI(bot);
-      if (mode === "mine") mineAI(bot);
-    }, 2000);
+    // MAIN BRAIN LOOP
+    setInterval(() => autonomousThink(bot), 1500);
   });
 
-  /* ================================
-     CHAT COMMANDS
-  ================================ */
-  bot.on("chat", (username, message) => {
-    if (username === bot.username) return;
-
-    if (message === "!build") {
-      mode = "build";
-      bot.chat("🧱 Axiom: building autonomously.");
-    }
-
-    if (message === "!mine") {
-      mode = "mine";
-      bot.chat("⛏️ Axiom: mining autonomously.");
-    }
-
-    if (message === "!combat") {
-      mode = "combat";
-      bot.chat("⚔️ Axiom: combat autonomous.");
-    }
-
-    if (message === "!stop") {
-      mode = "idle";
-      targetBlock = null;
-      combatTarget = null;
-      bot.pathfinder.stop();
-      bot.chat("🛑 Axiom: standing by.");
-    }
+  bot.on("end", () => {
+    console.log("🔄 Reconnecting...");
+    setTimeout(startBot, 10000);
   });
 
-  /* ================================
-     COMBAT AI (AUTOMATIC)
-  ================================ */
-  bot.on("physicsTick", () => {
-    if (mode !== "combat") return;
+  bot.on("error", err => console.log("⚠️", err));
+}
 
-    if (!combatTarget || !combatTarget.isValid) {
-      combatTarget = bot.nearestEntity(e =>
-        e.type === "mob" && e.mobType !== "Armor Stand"
-      );
-    }
+/* ================================
+   AUTONOMOUS BRAIN
+================================ */
+function autonomousThink(bot) {
+  if (!bot.entity) return;
 
-    if (!combatTarget) return;
+  // 1️⃣ COMBAT PRIORITY
+  combatTarget = bot.nearestEntity(e =>
+    e.type === "mob" && e.mobType !== "Armor Stand"
+  );
 
+  if (combatTarget) {
     bot.lookAt(combatTarget.position.offset(0, 1.4, 0));
-
     const dist = bot.entity.position.distanceTo(combatTarget.position);
 
     if (dist > 3) {
@@ -106,31 +71,10 @@ function startBot() {
     } else {
       bot.attack(combatTarget);
     }
-  });
+    return;
+  }
 
-  bot.on("end", () => {
-    console.log("🔄 Axiom disconnected, reconnecting...");
-    setTimeout(startBot, 10000);
-  });
-
-  bot.on("error", err => console.log("⚠️ Error:", err));
-}
-
-/* ================================
-   BUILDING AI
-================================ */
-function buildAI(bot) {
-  const pos = bot.entity.position.floored();
-  const baseBlock = bot.blockAt(pos.offset(0, -1, 0));
-  if (!baseBlock) return;
-
-  bot.placeBlock(baseBlock, new Vec3(0, 1, 0)).catch(() => {});
-}
-
-/* ================================
-   MINING AI
-================================ */
-function mineAI(bot) {
+  // 2️⃣ MINING PRIORITY
   if (targetBlock && bot.canDigBlock(targetBlock)) {
     bot.dig(targetBlock).catch(() => {});
     targetBlock = null;
@@ -141,19 +85,38 @@ function mineAI(bot) {
     matching: block =>
       block.name.includes("stone") ||
       block.name.includes("ore"),
-    maxDistance: 16
+    maxDistance: 12
   });
 
-  if (!targetBlock) return;
+  if (targetBlock) {
+    bot.pathfinder.setGoal(
+      new goals.GoalBlock(
+        targetBlock.position.x,
+        targetBlock.position.y,
+        targetBlock.position.z
+      )
+    );
+    return;
+  }
+
+  // 3️⃣ BUILDING BEHAVIOR
+  const pos = bot.entity.position.floored();
+  const baseBlock = bot.blockAt(pos.offset(0, -1, 0));
+
+  if (baseBlock) {
+    bot.placeBlock(baseBlock, new Vec3(0, 1, 0))
+      .catch(() => {});
+    return;
+  }
+
+  // 4️⃣ WANDER
+  const range = 8;
+  const wanderX = pos.x + Math.floor(Math.random() * range * 2 - range);
+  const wanderZ = pos.z + Math.floor(Math.random() * range * 2 - range);
 
   bot.pathfinder.setGoal(
-    new goals.GoalBlock(
-      targetBlock.position.x,
-      targetBlock.position.y,
-      targetBlock.position.z
-    )
+    new goals.GoalBlock(wanderX, pos.y, wanderZ)
   );
 }
 
 startBot();
-
