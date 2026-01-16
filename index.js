@@ -5,8 +5,8 @@ const { Vec3 } = require("vec3");
 /* ================================
    SERVER INFO
 ================================ */
-const SERVER_HOST = "MTB1-mLqH.aternos.me";
-const SERVER_PORT = 59794;
+const SERVER_HOST = "emerald.magmanode.com";
+const SERVER_PORT = 31177;
 const BOT_USERNAME = "Axiom";
 const MC_VERSION = "1.21";
 
@@ -156,3 +156,4 @@ function mineAI(bot) {
 }
 
 startBot();
+
