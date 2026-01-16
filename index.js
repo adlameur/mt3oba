@@ -5,8 +5,8 @@ const { Vec3 } = require("vec3");
 /* ================================
    SERVER INFO
 ================================ */
-const SERVER_HOST = "mtbcraft.minekeep.gg";
-const SERVER_PORT = 25565;
+const SERVER_HOST = "MTB1-mLqH.aternos.me";
+const SERVER_PORT = 59794;
 const BOT_USERNAME = "Axiom";
 const MC_VERSION = "1.21";
 
@@ -120,3 +120,4 @@ function autonomousThink(bot) {
 }
 
 startBot();
+
