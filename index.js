@@ -6,7 +6,7 @@ const { pathfinder, Movements, goals } = require("mineflayer-pathfinder");
 ================================ */
 const SERVER_HOST = "MTB1-mLqH.aternos.me";
 const SERVER_PORT = 59794;
-const BOT_USERNAME = "Axiom";
+const BOT_USERNAME = "Axiom_Traveler";
 const MC_VERSION = "1.21";
 
 /* ================================
@@ -100,3 +100,4 @@ function scheduleReconnect(reason) {
 }
 
 startBot();
+
