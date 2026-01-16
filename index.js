@@ -10,10 +10,18 @@ const SERVER_PORT = 59794;
 const BOT_USERNAME = "Axiom";
 const MC_VERSION = "1.21";
 
+/* ================================
+   INTERNAL STATE
+================================ */
+let reconnectDelay = 15000; // start with 15s
+let creativeSet = false;
 let targetBlock = null;
 let combatTarget = null;
+let thinkInterval = null;
 
 function startBot() {
+  console.log("⏳ Starting Axiom...");
+
   const bot = mineflayer.createBot({
     host: SERVER_HOST,
     port: SERVER_PORT,
@@ -24,9 +32,17 @@ function startBot() {
   bot.loadPlugin(pathfinder);
 
   bot.once("spawn", () => {
-    console.log("🧠 Axiom has awakened");
+    console.log("✅ Axiom connected");
 
-    setTimeout(() => bot.chat("/gamemode creative"), 3000);
+    reconnectDelay = 15000; // reset delay on success
+
+    // Set creative ONLY ONCE
+    if (!creativeSet) {
+      setTimeout(() => {
+        bot.chat("/gamemode creative");
+        creativeSet = true;
+      }, 6000);
+    }
 
     const mcData = require("minecraft-data")(bot.version);
     const movements = new Movements(bot, mcData);
@@ -36,25 +52,52 @@ function startBot() {
 
     bot.pathfinder.setMovements(movements);
 
-    // MAIN BRAIN LOOP
-    setInterval(() => autonomousThink(bot), 1500);
+    // SAFE AI LOOP (slower)
+    thinkInterval = setInterval(() => autonomousThink(bot), 3000);
   });
 
   bot.on("end", () => {
-    console.log("🔄 Reconnecting...");
-    setTimeout(startBot, 10000);
+    cleanup(bot);
+    scheduleReconnect("Disconnected");
   });
 
-  bot.on("error", err => console.log("⚠️", err));
+  bot.on("kicked", reason => {
+    console.log("❌ Kicked:", reason);
+    cleanup(bot);
+    scheduleReconnect("Kicked");
+  });
+
+  bot.on("error", err => {
+    if (err.code === "ECONNRESET") {
+      console.log("⚠️ Connection reset by server (Aternos cooldown)");
+    } else {
+      console.log("⚠️ Error:", err);
+    }
+  });
+}
+
+function cleanup(bot) {
+  try {
+    if (thinkInterval) clearInterval(thinkInterval);
+    bot.pathfinder.stop();
+  } catch {}
+}
+
+function scheduleReconnect(reason) {
+  console.log(`🔄 Reconnecting in ${reconnectDelay / 1000}s (${reason})`);
+  setTimeout(startBot, reconnectDelay);
+
+  // Exponential backoff (max 60s)
+  reconnectDelay = Math.min(reconnectDelay * 1.5, 60000);
 }
 
 /* ================================
-   AUTONOMOUS BRAIN
+   AUTONOMOUS BRAIN (SAFE)
 ================================ */
 function autonomousThink(bot) {
   if (!bot.entity) return;
 
-  // 1️⃣ COMBAT PRIORITY
+  // 1️⃣ Combat
   combatTarget = bot.nearestEntity(e =>
     e.type === "mob" && e.mobType !== "Armor Stand"
   );
@@ -74,7 +117,7 @@ function autonomousThink(bot) {
     return;
   }
 
-  // 2️⃣ MINING PRIORITY
+  // 2️⃣ Mining
   if (targetBlock && bot.canDigBlock(targetBlock)) {
     bot.dig(targetBlock).catch(() => {});
     targetBlock = null;
@@ -85,7 +128,7 @@ function autonomousThink(bot) {
     matching: block =>
       block.name.includes("stone") ||
       block.name.includes("ore"),
-    maxDistance: 12
+    maxDistance: 10
   });
 
   if (targetBlock) {
@@ -99,25 +142,14 @@ function autonomousThink(bot) {
     return;
   }
 
-  // 3️⃣ BUILDING BEHAVIOR
+  // 3️⃣ Light building (not spammy)
   const pos = bot.entity.position.floored();
-  const baseBlock = bot.blockAt(pos.offset(0, -1, 0));
+  const base = bot.blockAt(pos.offset(0, -1, 0));
 
-  if (baseBlock) {
-    bot.placeBlock(baseBlock, new Vec3(0, 1, 0))
+  if (base && Math.random() < 0.25) {
+    bot.placeBlock(base, new Vec3(0, 1, 0))
       .catch(() => {});
-    return;
   }
-
-  // 4️⃣ WANDER
-  const range = 8;
-  const wanderX = pos.x + Math.floor(Math.random() * range * 2 - range);
-  const wanderZ = pos.z + Math.floor(Math.random() * range * 2 - range);
-
-  bot.pathfinder.setGoal(
-    new goals.GoalBlock(wanderX, pos.y, wanderZ)
-  );
 }
 
 startBot();
-
